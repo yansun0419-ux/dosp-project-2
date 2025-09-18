@@ -1,7 +1,5 @@
 # Project 2: Gossip Protocol
 
-**Team Members:** Claude Code Implementation
-
 ## What is Working
 
 This project implements both the Gossip and Push-Sum algorithms with the following features:
