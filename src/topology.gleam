@@ -55,19 +55,41 @@ fn build_3d_topology(num_nodes: Int) -> List(List(Int)) {
 /// Build an imperfect 3D grid topology
 /// Based on 3D grid, but each node has an additional random neighbor
 /// This improves convergence speed by creating potential shortcuts in the network
+/// Ensures each node gets exactly one additional random neighbor
 fn build_imperfect_3d_topology(num_nodes: Int) -> List(List(Int)) {
   let side_length = calculate_cube_side(num_nodes)
   list.range(0, num_nodes - 1)
   |> list.map(fn(i) {
     let grid_neighbors = get_3d_neighbors(i, side_length, num_nodes)
-    let random_neighbor = int.random(num_nodes)
-    case
-      list.contains(grid_neighbors, random_neighbor) || random_neighbor == i
-    {
-      // Skip if random neighbor is already a grid neighbor or self
-      True -> grid_neighbors
-      // Add the random neighbor to the list
-      False -> [random_neighbor, ..grid_neighbors]
+    let random_neighbor = find_random_neighbor(i, grid_neighbors, num_nodes)
+    [random_neighbor, ..grid_neighbors]
+  })
+}
+/// Build an imperfect 3D grid topology with a failure model
+/// Similar to the imperfect 3D grid, but ensures that each node has at least one neighbor
+/// even if a random neighbor selection fails (e.g., due to node failure)
+fn build_imperfect_3d_topology_failure_model(num_nodes: Int) -> List(List(Int)) {
+  let side_length = calculate_cube_side(num_nodes)
+  list.range(0, num_nodes - 1)
+  |> list.map(fn(i) {
+    let grid_neighbors = get_3d_neighbors(i, side_length, num_nodes)
+    // If node already has neighbors from the grid, try to add a random one
+    case list.length(grid_neighbors) {
+      0 -> {
+        // Node has no grid neighbors, must ensure it gets at least one neighbor
+        let random_neighbor = find_backup_neighbor(i, num_nodes)
+        [random_neighbor]
+      }
+      _ -> {
+        // Has grid neighbors, try to add random one but keep grid neighbors if fails
+        let random_neighbor = int.random(num_nodes)
+        case
+          list.contains(grid_neighbors, random_neighbor) || random_neighbor == i
+        {
+          True -> grid_neighbors
+          False -> [random_neighbor, ..grid_neighbors]
+        }
+      }
     }
   })
 }
@@ -124,4 +146,28 @@ fn get_3d_neighbors(index: Int, side_length: Int, total_nodes: Int) -> List(Int)
     // Ensure neighbor index is within valid range
     neighbor_index < total_nodes
   })
+}
+
+/// Find a valid random neighbor that is not in the current neighbors list and not self
+fn find_random_neighbor(current_node: Int, grid_neighbors: List(Int), num_nodes: Int) -> Int {
+  let random_neighbor = int.random(num_nodes)
+  case
+    list.contains(grid_neighbors, random_neighbor) || random_neighbor == current_node
+  {
+    // If invalid (already a neighbor or self), try again recursively
+    True -> find_random_neighbor(current_node, grid_neighbors, num_nodes)
+    // Found a valid random neighbor
+    False -> random_neighbor
+  }
+}
+
+/// Find a backup neighbor for a node that has no grid neighbors
+/// Ensures that a node always has at least one neighbor by trying until it finds
+/// a valid neighbor that is not the node itself
+fn find_backup_neighbor(current_node: Int, num_nodes: Int) -> Int {
+  let random_neighbor = int.random(num_nodes)
+  case random_neighbor == current_node {
+    True -> find_backup_neighbor(current_node, num_nodes)
+    False -> random_neighbor
+  }
 }
