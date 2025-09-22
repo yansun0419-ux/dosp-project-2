@@ -1,5 +1,4 @@
 import gleam/int
-import gleam/io
 import gleam/result
 import types.{
   type Algorithm, type NetworkState, type Topology, Full, Gossip, GossipNetwork,
@@ -18,6 +17,15 @@ pub fn parse_arguments(
     _ -> Error("Invalid number of nodes")
   })
 
+  // use num_nodes <- result.try(case int.parse(num_nodes_str) {
+  //   Ok(n) if n > 0 -> Ok(n)
+  //   Ok(n) -> {
+  //     // 输出解析成功但值无效的情况
+  //     Error("Invalid number of nodes: " <> int.to_string(n) <> " (must be > 0)")
+  //   }
+  //   Error(_) -> Error("Invalid number of nodes: '" <> num_nodes_str <> "' is not a valid integer")
+  // })
+
   use topology <- result.try(case topology_str {
     "full" -> Ok(Full)
     "3D" -> Ok(ThreeD)
@@ -33,14 +41,6 @@ pub fn parse_arguments(
   })
 
   Ok(#(num_nodes, topology, algorithm))
-}
-
-/// Print usage instructions
-pub fn print_usage() -> Nil {
-  io.println("Usage: project2 numNodes topology algorithm")
-  io.println("  numNodes: number of actors")
-  io.println("  topology: full, 3D, line, imp3D")
-  io.println("  algorithm: gossip, push-sum")
 }
 
 /// Calculate simulation convergence time for Gossip algorithm
@@ -82,5 +82,23 @@ pub fn calculate_convergence_time(
   case final_state {
     GossipNetwork(_) -> calculate_gossip_time(num_nodes, topology)
     PushSumNetwork(_) -> calculate_pushsum_time(num_nodes, topology)
+  }
+}
+
+/// Convert Topology type to string for display
+pub fn topology_to_string(topology: Topology) -> String {
+  case topology {
+    Full -> "full"
+    ThreeD -> "3D"
+    Line -> "line"
+    ImperfectThreeD -> "imp3D"
+  }
+}
+
+/// Convert Algorithm type to string for display
+pub fn algorithm_to_string(algorithm: Algorithm) -> String {
+  case algorithm {
+    Gossip -> "gossip"
+    PushSum -> "push-sum"
   }
 }
