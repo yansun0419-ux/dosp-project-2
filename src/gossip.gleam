@@ -1,9 +1,8 @@
 import gleam/dict.{type Dict}
+import gleam/int
 import gleam/list
 import types.{type GossipState, type NetworkState, GossipNetwork, GossipNode}
 
-/// Initialize a Gossip network
-/// Creates all nodes with initial state: no rumors heard and active
 pub fn init_gossip_network(
   num_nodes: Int,
   neighbor_map: List(List(Int)),
@@ -20,13 +19,9 @@ pub fn init_gossip_network(
   GossipNetwork(nodes)
 }
 
-/// Simulate the Gossip algorithm execution
-/// Recursively simulates each round until all nodes become inactive (convergence)
-/// A node becomes inactive after hearing the rumor 10 times
 pub fn simulate_gossip(network: NetworkState, round: Int) -> NetworkState {
   case network {
     GossipNetwork(nodes) -> {
-      // First round: Start spreading rumor from node 0
       let updated_nodes = case round {
         0 -> {
           case dict.get(nodes, 0) {
@@ -38,7 +33,6 @@ pub fn simulate_gossip(network: NetworkState, round: Int) -> NetworkState {
         _ -> nodes
       }
 
-      // Check how many nodes are still active
       let active_count =
         dict.fold(updated_nodes, 0, fn(acc, _, node) {
           case node {
@@ -47,10 +41,8 @@ pub fn simulate_gossip(network: NetworkState, round: Int) -> NetworkState {
           }
         })
 
-      // Continue simulation if there are active nodes and within round limit
       case active_count > 0 && round < 1000 {
         True -> {
-          // Simulate one round of rumor spreading
           let new_nodes = simulate_gossip_round(updated_nodes)
           simulate_gossip(GossipNetwork(new_nodes), round + 1)
         }
@@ -62,23 +54,21 @@ pub fn simulate_gossip(network: NetworkState, round: Int) -> NetworkState {
 }
 
 /// Simulate one round of the Gossip algorithm
-/// Each active node spreads the rumor to a random neighbor
-/// A node participates in spreading only if it has heard the rumor but less than 10 times
 fn simulate_gossip_round(
   nodes: Dict(Int, GossipState),
 ) -> Dict(Int, GossipState) {
   dict.fold(nodes, nodes, fn(acc, _node_id, node) {
     case node {
-      // Only active nodes that have heard the rumor less than 10 times spread it
-      GossipNode(neighbors, rumor_count, True)
-        if rumor_count > 0 && rumor_count < 10
-      -> {
-        // Spread the rumor to the first neighbor (simplified random choice)
-        case neighbors {
-          [neighbor, ..] -> {
+      // MODIFIED: Pattern `[_, ..] as neighbors` checks for a non-empty list
+      // without calling a function in the guard.
+      GossipNode([_, ..] as neighbors, rumor_count, True)
+        if rumor_count > 0 && rumor_count < 10 -> {
+        // Select a random neighbor
+        let random_index = int.random(list.length(neighbors))
+        case list.drop(neighbors, random_index) |> list.first() {
+          Ok(neighbor) -> {
             case dict.get(acc, neighbor) {
               Ok(GossipNode(n_neighbors, n_rumor_count, n_active)) -> {
-                // The neighbor hears the rumor, increment count, become inactive if reaches 10
                 let new_neighbor =
                   GossipNode(
                     n_neighbors,
@@ -90,7 +80,7 @@ fn simulate_gossip_round(
               Error(_) -> acc
             }
           }
-          [] -> acc
+          Error(_) -> acc
         }
       }
       _ -> acc
