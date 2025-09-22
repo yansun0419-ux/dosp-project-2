@@ -1,91 +1,102 @@
+// src/dosp_project_2.gleam
+
+import actor
+import gleam/erlang/process
 import gleam/int
 import gleam/io
+import gleam/list
+import gleam/otp/actor
 import gossip
 import push_sum
 import topology
 import types.{type Algorithm, type Topology, Gossip, PushSum}
-import utils.{algorithm_to_string, parse_arguments, topology_to_string}
+import utils
 
 // Erlang FFI for timing
 @external(erlang, "erlang", "monotonic_time")
 fn os_timestamp() -> Int
 
-/// Entry point for the distributed system simulation
-pub fn main() {
-  case erlang_env_argv() {
-    [] -> {
-      io.println("Usage: gleam run -- <num_nodes> <topology> <algorithm>")
-      io.println("  num_nodes: number of actors")
-      io.println("  topology: full, 3D, line, imp3D")
-      io.println("  algorithm: gossip, push-sum")
-      panic as "Missing or invalid arguments"
-    }
-    [num_nodes_charlist, topology_charlist, algorithm_charlist] -> {
-      // convert charlists to strings
-      let num_nodes_str = charlist_to_string(num_nodes_charlist)
-      let topology_str = charlist_to_string(topology_charlist)
-      let algorithm_str = charlist_to_string(algorithm_charlist)
-
-      case parse_arguments(num_nodes_str, topology_str, algorithm_str) {
-        Ok(#(num_nodes, topology, algorithm)) -> {
-          io.println("Successfully parsed arguments:")
-          io.println("Number of nodes: " <> int.to_string(num_nodes))
-          io.println("Topology: " <> topology_to_string(topology))
-          io.println("Algorithm: " <> algorithm_to_string(algorithm))
-
-          run(num_nodes, topology, algorithm)
-        }
-        Error(error) -> {
-          io.println("Error: " <> error)
-          panic as error
-        }
-      }
-    }
-    _ -> {
-      io.println("Error: Expected exactly 3 arguments")
-      io.println("Usage: gleam run -- <num_nodes> <topology> <algorithm>")
-      panic as "Invalid number of arguments"
+// Main supervisor logic
+fn await_convergence(count: Int, num_nodes: Int) {
+  case count >= num_nodes {
+    True -> Nil // All nodes have converged
+    False -> {
+      use <- process.receive()
+      await_convergence(count + 1, num_nodes)
     }
   }
 }
 
-/// Get command line arguments from Erlang environment
-@external(erlang, "init", "get_plain_arguments")
-fn erlang_env_argv() -> List(List(Int))
+pub fn main() {
+  case utils.erlang_env_argv() {
+    [num_nodes_str, topology_str, algorithm_str] -> {
+      case utils.parse_arguments(num_nodes_str, topology_str, algorithm_str) {
+        Ok(#(num_nodes, t, a)) -> run(num_nodes, t, a)
+        Error(e) -> io.println("Error: " <> e)
+      }
+    }
+    _ -> io.println("Usage: gleam run -- <nodes> <topo> <algo>")
+  }
+}
 
-/// Convert a charlist to a string
-@external(erlang, "unicode", "characters_to_binary")
-fn charlist_to_string(charlist: List(Int)) -> String
-
-/// Run a complete network simulation
 pub fn run(
   num_nodes: Int,
   network_topology: Topology,
   algorithm: Algorithm,
 ) -> Nil {
-  // 1. Build network topology
-  let neighbor_map = topology.build_topology(num_nodes, network_topology)
+  io.println("Building topology...")
+  let neighbor_indices = topology.build_topology(num_nodes, network_topology)
 
-  // 2. Initialize network state
-  let initial_state = case algorithm {
-    Gossip -> gossip.init_gossip_network(num_nodes, neighbor_map)
-    PushSum -> push_sum.init_pushsum_network(num_nodes, neighbor_map)
-  }
+  let supervisor = process.self()
 
-  // Start timer
+  io.println("Spawning actors...")
+  // Spawn all the actors first and get their Pids.
+  let actors =
+    list.range(0, num_nodes - 1)
+    |> list.map(fn(i) {
+      let initial_actor_state = case algorithm {
+        Gossip -> gossip.initial_state()
+        PushSum -> push_sum.initial_state(i)
+      }
+      // The actor's state is a tuple of its specific state and the supervisor's Pid
+      let full_initial_state = #(initial_actor_state, supervisor)
+      // The start function expects a function that returns the message handler
+      actor.start(full_initial_state, fn(_) { actor.loop })
+    })
+
+  io.println("Initializing neighbors...")
+  // Now, tell each actor who its neighbors are.
+  actors
+  |> list.zip(neighbor_indices)
+  |> list.each(fn(pair) { // pair is #(Ok(actor.Actor), List(Int))
+    let #(Ok(node_actor), neighbors) = pair
+    let neighbor_handles =
+      list.map(neighbors, fn(i) { list.at(actors, i) })
+      |> list.filter_map(fn(res) { result.then(res, Ok) })
+    actor.send(node_actor, types.Init(neighbor_handles))
+  })
+
+  // Start the timer right before kicking off the simulation
   let start_time = os_timestamp()
+  io.println("Starting simulation...")
 
-  // 3. Execute the chosen algorithm
-  let _final_state = case algorithm {
-    Gossip -> gossip.simulate_gossip(initial_state, 0)
-    PushSum -> push_sum.simulate_pushsum(initial_state, 0)
+  // Start the simulation by sending a message to the first actor.
+  case actors {
+    [Ok(first), ..] -> actor.send(first, types.Start)
+    [] -> Nil
   }
 
-  // Stop timer and calculate duration
-  let end_time = os_timestamp()
-  // timer_now_diff returns microseconds, so we divide by 1000 for milliseconds
-  let duration_ms = {end_time - start_time} / 1000
+  // Wait until all actors have sent a "Converged" message.
+  await_convergence(0, num_nodes)
 
-  // 4. Output results
+  let end_time = os_timestamp()
+  let duration_ns = end_time - start_time
+  let duration_ms = duration_ns / 1_000_000
+
   io.println("Convergence time: " <> int.to_string(duration_ms) <> " ms")
+
+  // Cleanly stop all actors
+  actors
+  |> list.filter_map(fn(res) { result.then(res, Ok) })
+  |> list.each(actor.stop)
 }

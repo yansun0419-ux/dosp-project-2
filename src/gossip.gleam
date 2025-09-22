@@ -1,89 +1,73 @@
-import gleam/dict.{type Dict}
+import gleam/erlang/process.{type Pid}
 import gleam/int
+import gleam/otp/actor.{type Actor}
 import gleam/list
-import types.{type GossipState, type NetworkState, GossipNetwork, GossipNode}
-
-pub fn init_gossip_network(
-  num_nodes: Int,
-  neighbor_map: List(List(Int)),
-) -> NetworkState {
-  let nodes =
-    list.range(0, num_nodes - 1)
-    |> list.zip(neighbor_map)
-    |> list.fold(dict.new(), fn(acc, pair) {
-      let #(node_id, neighbors) = pair
-      let node = GossipNode(neighbors: neighbors, rumor_count: 0, active: True)
-      dict.insert(acc, node_id, node)
-    })
-
-  GossipNetwork(nodes)
+import types.{
+  // Use the new unified Action type
+  type Action,
+  type ActorState,
+  type GossipState,
+  ContinueWork,
+  GossipActor,
+  GossipState,
+  SendRumor,
 }
 
-pub fn simulate_gossip(network: NetworkState, round: Int) -> NetworkState {
-  case network {
-    GossipNetwork(nodes) -> {
-      let updated_nodes = case round {
-        0 -> {
-          case dict.get(nodes, 0) {
-            Ok(GossipNode(neighbors, _, active)) ->
-              dict.insert(nodes, 0, GossipNode(neighbors, 1, active))
-            Error(_) -> nodes
-          }
-        }
-        _ -> nodes
-      }
+pub fn initial_state() -> ActorState {
+  GossipActor(GossipState(rumor_count: 0, neighbors: []))
+}
 
-      let active_count =
-        dict.fold(updated_nodes, 0, fn(acc, _, node) {
-          case node {
-            GossipNode(_, _, True) -> acc + 1
-            GossipNode(_, _, False) -> acc
-          }
-        })
+pub fn set_neighbors(
+  state: GossipState,
+  neighbors: List(Actor(types.ActorMessage)),
+) -> GossipState {
+  GossipState(..state, neighbors: neighbors)
+}
 
-      case active_count > 0 && round < 1000 {
-        True -> {
-          let new_nodes = simulate_gossip_round(updated_nodes)
-          simulate_gossip(GossipNetwork(new_nodes), round + 1)
-        }
-        False -> GossipNetwork(updated_nodes)
+pub fn handle_start(
+  state: GossipState,
+  me: Actor(types.ActorMessage),
+) -> #(ActorState, List(Action), Bool) {
+  let new_state = GossipState(..state, rumor_count: 1)
+  let actions = [ContinueWork(me)]
+  #(GossipActor(new_state), actions, False)
+}
+
+pub fn handle_rumor(
+  state: GossipState,
+) -> #(ActorState, List(Action), Bool) {
+  case state.rumor_count >= 10 {
+    True -> #(GossipActor(state), [], False)
+    False -> {
+      let new_count = state.rumor_count + 1
+      let new_state = GossipState(..state, rumor_count: new_count)
+      case new_count == 10 {
+        True -> #(GossipActor(new_state), [], True)
+        False -> #(GossipActor(new_state), [], False)
       }
     }
-    _ -> network
   }
 }
 
-/// Simulate one round of the Gossip algorithm
-fn simulate_gossip_round(
-  nodes: Dict(Int, GossipState),
-) -> Dict(Int, GossipState) {
-  dict.fold(nodes, nodes, fn(acc, _node_id, node) {
-    case node {
-      // MODIFIED: Pattern `[_, ..] as neighbors` checks for a non-empty list
-      // without calling a function in the guard.
-      GossipNode([_, ..] as neighbors, rumor_count, True)
-        if rumor_count > 0 && rumor_count < 10 -> {
-        // Select a random neighbor
-        let random_index = int.random(list.length(neighbors))
-        case list.drop(neighbors, random_index) |> list.first() {
-          Ok(neighbor) -> {
-            case dict.get(acc, neighbor) {
-              Ok(GossipNode(n_neighbors, n_rumor_count, n_active)) -> {
-                let new_neighbor =
-                  GossipNode(
-                    n_neighbors,
-                    n_rumor_count + 1,
-                    n_active && n_rumor_count + 1 < 10,
-                  )
-                dict.insert(acc, neighbor, new_neighbor)
-              }
-              Error(_) -> acc
-            }
+pub fn handle_work(
+  state: GossipState,
+  me: Actor(types.ActorMessage),
+) -> #(ActorState, List(Action), Bool) {
+  case state.rumor_count == 0 || state.rumor_count >= 10 {
+    True -> #(GossipActor(state), [], False)
+    False -> {
+      let actions = case list.is_empty(state.neighbors) {
+        True -> []
+        False -> {
+          let random_index = int.random(list.length(state.neighbors))
+          case list.drop(state.neighbors, random_index) |> list.first {
+            Ok(neighbor) -> [SendRumor(neighbor)]
+            Error(_) -> []
           }
-          Error(_) -> acc
         }
       }
-      _ -> acc
+      let actions = list.append(actions, [ContinueWork(me)])
+      #(GossipActor(state), actions, False)
     }
-  })
+  }
 }

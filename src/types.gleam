@@ -1,77 +1,61 @@
-import gleam/dict.{type Dict}
+import gleam/erlang/process.{type Pid}
+import gleam/otp/actor.{type Actor}
 
-/// Algorithm type enumeration
+// --- Algorithm & Topology Enums (Unchanged) ---
 pub type Algorithm {
-  /// Gossip rumor spreading algorithm
   Gossip
-  /// Push-Sum distributed averaging algorithm
   PushSum
 }
 
-/// Network topology type enumeration
 pub type Topology {
-  /// Fully connected network - each node is connected to all other nodes
   Full
-  /// 3D grid topology - nodes arranged in a 3D cube, each with up to 6 neighbors
   ThreeD
-  /// Line topology - nodes arranged in a line, each with up to 2 neighbors
   Line
-  /// Imperfect 3D grid - 3D grid with an additional random connection per node
   ImperfectThreeD
 }
 
-/// Node state in the Gossip algorithm
+// --- Actor & Node Messages (Unchanged) ---
+pub type NodeMessage {
+  Rumor
+  PushSumValues(s: Float, w: Float)
+}
+
+pub type ActorMessage {
+  Init(neighbors: List(Actor(ActorMessage)))
+  Start
+  Node(from: Pid, msg: NodeMessage)
+  Work
+}
+
+// --- Supervisor Messages ---
+pub type SupervisorMessage {
+  Converged
+}
+
+// --- State Definitions (Unchanged) ---
 pub type GossipState {
-  GossipNode(
-    /// List of neighbor node IDs
-    neighbors: List(Int),
-    /// Number of times heard the rumor (stops spreading after 10)
-    rumor_count: Int,
-    /// Whether still actively spreading rumors
-    active: Bool,
-  )
+  GossipState(rumor_count: Int, neighbors: List(Actor(ActorMessage)))
 }
 
-/// Node state in the Push-Sum algorithm
 pub type PushSumState {
-  PushSumNode(
-    /// List of neighbor node IDs
-    neighbors: List(Int),
-    /// Sum value (initially node_id + 1)
+  PushSumState(
     s: Float,
-    /// Weight value (initially 1.0)
     w: Float,
-    /// Number of rounds the s/w ratio remained unchanged
-    ratio_unchanged_count: Int,
-    /// Previous round's s/w ratio for convergence detection
     last_ratio: Float,
-    /// Whether still actively computing
-    active: Bool,
+    ratio_unchanged_count: Int,
+    neighbors: List(Actor(ActorMessage)),
   )
 }
 
-/// Complete network state containing all nodes
-pub type NetworkState {
-  /// Gossip network state - dictionary of all Gossip nodes
-  GossipNetwork(nodes: Dict(Int, GossipState))
-  /// Push-Sum network state - dictionary of all Push-Sum nodes
-  PushSumNetwork(nodes: Dict(Int, PushSumState))
+pub type ActorState {
+  GossipActor(GossipState)
+  PushSumActor(PushSumState)
 }
 
-/// Convert algorithm type to string for display
-pub fn algorithm_to_string(algorithm: Algorithm) -> String {
-  case algorithm {
-    Gossip -> "gossip"
-    PushSum -> "push-sum"
-  }
-}
-
-/// Convert topology type to string for display
-pub fn topology_to_string(topology: Topology) -> String {
-  case topology {
-    Full -> "full"
-    ThreeD -> "3D"
-    Line -> "line"
-    ImperfectThreeD -> "imp3D"
-  }
+// --- NEW: Unified Action Type ---
+// This defines all possible actions an actor can take, regardless of algorithm.
+pub type Action {
+  SendRumor(to: Actor(ActorMessage))
+  SendPushSum(to: Actor(ActorMessage), s: Float, w: Float)
+  ContinueWork(me: Actor(ActorMessage))
 }
