@@ -1,10 +1,10 @@
-import gleam/erlang/process.{type Pid}
+import gleam/erlang/process.{type Subject}
 import gleam/int
-import gleam/otp/actor.{type Actor}
 import gleam/list
 import types.{
   // Use the new unified Action type
   type Action,
+  type ActorMessage,
   type ActorState,
   type GossipState,
   ContinueWork,
@@ -17,16 +17,13 @@ pub fn initial_state() -> ActorState {
   GossipActor(GossipState(rumor_count: 0, neighbors: []))
 }
 
-pub fn set_neighbors(
-  state: GossipState,
-  neighbors: List(Actor(types.ActorMessage)),
-) -> GossipState {
+pub fn set_neighbors(state: GossipState, neighbors: List(Subject(ActorMessage))) -> GossipState {
   GossipState(..state, neighbors: neighbors)
 }
 
 pub fn handle_start(
   state: GossipState,
-  me: Actor(types.ActorMessage),
+  me: Subject(ActorMessage),
 ) -> #(ActorState, List(Action), Bool) {
   let new_state = GossipState(..state, rumor_count: 1)
   let actions = [ContinueWork(me)]
@@ -51,7 +48,7 @@ pub fn handle_rumor(
 
 pub fn handle_work(
   state: GossipState,
-  me: Actor(types.ActorMessage),
+  me: Subject(ActorMessage),
 ) -> #(ActorState, List(Action), Bool) {
   case state.rumor_count == 0 || state.rumor_count >= 10 {
     True -> #(GossipActor(state), [], False)

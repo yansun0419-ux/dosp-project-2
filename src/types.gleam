@@ -1,5 +1,4 @@
-import gleam/erlang/process.{type Pid}
-import gleam/otp/actor.{type Actor}
+import gleam/erlang/process.{type Pid, type Subject}
 
 // --- Algorithm & Topology Enums (Unchanged) ---
 pub type Algorithm {
@@ -21,7 +20,7 @@ pub type NodeMessage {
 }
 
 pub type ActorMessage {
-  Init(neighbors: List(Actor(ActorMessage)))
+  Init(neighbors: List(Subject(ActorMessage)))
   Start
   Node(from: Pid, msg: NodeMessage)
   Work
@@ -34,7 +33,7 @@ pub type SupervisorMessage {
 
 // --- State Definitions (Unchanged) ---
 pub type GossipState {
-  GossipState(rumor_count: Int, neighbors: List(Actor(ActorMessage)))
+  GossipState(rumor_count: Int, neighbors: List(Subject(ActorMessage)))
 }
 
 pub type PushSumState {
@@ -43,7 +42,7 @@ pub type PushSumState {
     w: Float,
     last_ratio: Float,
     ratio_unchanged_count: Int,
-    neighbors: List(Actor(ActorMessage)),
+    neighbors: List(Subject(ActorMessage)),
   )
 }
 
@@ -55,7 +54,7 @@ pub type ActorState {
 // --- NEW: Unified Action Type ---
 // This defines all possible actions an actor can take, regardless of algorithm.
 pub type Action {
-  SendRumor(to: Actor(ActorMessage))
-  SendPushSum(to: Actor(ActorMessage), s: Float, w: Float)
-  ContinueWork(me: Actor(ActorMessage))
+  SendRumor(to: Subject(ActorMessage))
+  SendPushSum(to: Subject(ActorMessage), s: Float, w: Float)
+  ContinueWork(me: Subject(ActorMessage))
 }

@@ -1,11 +1,11 @@
-import gleam/erlang/process.{type Pid}
+import gleam/erlang/process.{type Subject}
 import gleam/float
-import gleam/otp/actor.{type Actor}
 import gleam/int
 import gleam/list
 import types.{
   // Use the new unified Action type
   type Action,
+  type ActorMessage,
   type ActorState,
   type PushSumState,
   ContinueWork,
@@ -25,16 +25,13 @@ pub fn initial_state(id: Int) -> ActorState {
   ))
 }
 
-pub fn set_neighbors(
-  state: PushSumState,
-  neighbors: List(Actor(types.ActorMessage)),
-) -> PushSumState {
+pub fn set_neighbors(state: PushSumState, neighbors: List(Subject(ActorMessage))) -> PushSumState {
   PushSumState(..state, neighbors: neighbors)
 }
 
 pub fn handle_start(
   state: PushSumState,
-  me: Actor(types.ActorMessage),
+  me: Subject(ActorMessage),
 ) -> #(ActorState, List(Action), Bool) {
   #(PushSumActor(state), [ContinueWork(me)], False)
 }
@@ -70,7 +67,7 @@ pub fn handle_push_sum(
 
 pub fn handle_work(
   state: PushSumState,
-  me: Actor(types.ActorMessage),
+  me: Subject(ActorMessage),
 ) -> #(ActorState, List(Action), Bool) {
   case state.ratio_unchanged_count >= 3 {
     True -> #(PushSumActor(state), [], True)

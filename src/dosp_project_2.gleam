@@ -1,6 +1,5 @@
 // src/dosp_project_2.gleam
 
-import actor
 import gleam/erlang/process
 import gleam/int
 import gleam/io
